@@ -1,4 +1,4 @@
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { homedir } from "node:os";
 import { fileURLToPath } from "node:url";
@@ -74,26 +74,15 @@ export function filterSkillBodyForMode(body, mode) {
     .join("\n");
 }
 
-function fallbackInstructions(mode) {
-  return `PONYTAIL MODE ACTIVE — level: ${mode}\n\n` +
-    "You are a lazy senior developer. Lazy means efficient, not careless. The best code is the code never written.\n\n" +
-    "Stop at the first rung that holds: YAGNI, stdlib, native platform feature, already-installed dependency, one line, then minimum code.\n\n" +
-    "No unrequested abstractions, no avoidable dependencies, no boilerplate nobody asked for. Deletion over addition. Fewest files possible.\n\n" +
-    "Code first. Then at most three short lines: what was skipped, when to add it.\n\n" +
-    "Never simplify away validation at trust boundaries, data-loss prevention, security, accessibility, real-hardware calibration, or anything explicitly requested. Non-trivial logic leaves one runnable check behind.";
-}
-
 export function getPonytailInstructions(mode) {
   const effectiveMode = normalizeMode(mode) || DEFAULT_MODE;
 
   try {
-    const body = existsSync(skillPath) ? readFileSync(skillPath, "utf8") : "";
-    if (body) return `PONYTAIL MODE ACTIVE — level: ${effectiveMode}\n\n${filterSkillBodyForMode(body, effectiveMode)}`;
+    const body = readFileSync(skillPath, "utf8");
+    return `PONYTAIL MODE ACTIVE — level: ${effectiveMode}\n\n${filterSkillBodyForMode(body, effectiveMode)}`;
   } catch {
-    // fall through to embedded fallback
+    return null;
   }
-
-  return fallbackInstructions(effectiveMode);
 }
 
 export function resolveSessionMode(entries, fallbackMode = DEFAULT_MODE) {
@@ -125,15 +114,11 @@ export function parsePonytailCommand(text, defaultMode = DEFAULT_MODE) {
 
   if (primary === "default") {
     const mode = normalizeMode(secondary);
-    return mode ? { type: "set-default", mode } : { type: "invalid", reason: "invalid-default-mode" };
+    return mode ? { type: "set-default", mode } : { type: "invalid" };
   }
 
   const mode = normalizeMode(primary);
-  return mode ? { type: "set-mode", mode } : { type: "invalid", reason: "invalid-mode", mode: primary };
-}
-
-function notify(ctx, text, level = "info") {
-  ctx?.ui?.notify?.(text, level);
+  return mode ? { type: "set-mode", mode } : { type: "invalid" };
 }
 
 export default function ponytailExtension(pi) {
@@ -146,7 +131,7 @@ export default function ponytailExtension(pi) {
 
     currentMode = normalized;
     pi.appendEntry("ponytail-mode", { mode: normalized });
-    notify(ctx, `Ponytail mode set to ${normalized}.`);
+    ctx?.ui?.notify?.(`Ponytail mode set to ${normalized}.`, "info");
   };
 
   const sendAlias = (skillName, args, ctx) => {
@@ -155,7 +140,7 @@ export default function ponytailExtension(pi) {
 
     if (ctx?.isIdle?.() === false) {
       pi.sendUserMessage(message, { deliverAs: "followUp" });
-      notify(ctx, `/${skillName} queued as follow-up.`);
+      ctx?.ui?.notify?.(`/${skillName} queued as follow-up.`, "info");
       return;
     }
 
@@ -168,7 +153,7 @@ export default function ponytailExtension(pi) {
       const parsed = parsePonytailCommand(args, configuredDefaultMode);
 
       if (parsed.type === "status") {
-        notify(ctx, `Ponytail: current ${currentMode} • default ${configuredDefaultMode}`);
+        ctx?.ui?.notify?.(`Ponytail: current ${currentMode} • default ${configuredDefaultMode}`, "info");
         return;
       }
 
@@ -179,7 +164,7 @@ export default function ponytailExtension(pi) {
           const message = configuredDefaultMode === written
             ? `Default Ponytail mode set to ${written}.`
             : `Saved default ${written}, but PONYTAIL_DEFAULT_MODE keeps default at ${configuredDefaultMode}.`;
-          notify(ctx, message);
+          ctx?.ui?.notify?.(message, "info");
         }
         return;
       }
@@ -189,29 +174,16 @@ export default function ponytailExtension(pi) {
         return;
       }
 
-      notify(ctx, "Unknown /ponytail mode. Use lite, full, ultra, off, status, or default <mode>.", "warning");
+      ctx?.ui?.notify?.("Unknown /ponytail mode. Use lite, full, ultra, off, status, or default <mode>.", "warning");
     },
   });
 
-  pi.registerCommand("ponytail-review", {
-    description: "Run /skill:ponytail-review",
-    handler: (args, ctx) => sendAlias("ponytail-review", args, ctx),
-  });
-
-  pi.registerCommand("ponytail-audit", {
-    description: "Run /skill:ponytail-audit",
-    handler: (args, ctx) => sendAlias("ponytail-audit", args, ctx),
-  });
-
-  pi.registerCommand("ponytail-debt", {
-    description: "Run /skill:ponytail-debt",
-    handler: (args, ctx) => sendAlias("ponytail-debt", args, ctx),
-  });
-
-  pi.registerCommand("ponytail-help", {
-    description: "Run /skill:ponytail-help",
-    handler: (args, ctx) => sendAlias("ponytail-help", args, ctx),
-  });
+  for (const name of ["ponytail-review", "ponytail-audit", "ponytail-debt", "ponytail-help"]) {
+    pi.registerCommand(name, {
+      description: `Run /skill:${name}`,
+      handler: (args, ctx) => sendAlias(name, args, ctx),
+    });
+  }
 
   pi.on("session_start", async (_event, ctx) => {
     const entries = ctx?.sessionManager?.getBranch?.() || ctx?.sessionManager?.getEntries?.() || [];
@@ -233,8 +205,11 @@ export default function ponytailExtension(pi) {
   pi.on("before_agent_start", async (event) => {
     if (!currentMode || currentMode === "off") return;
 
+    const instructions = getPonytailInstructions(currentMode);
+    if (!instructions) return;
+
     return {
-      systemPrompt: `${event.systemPrompt}\n\n${getPonytailInstructions(currentMode)}`,
+      systemPrompt: `${event.systemPrompt}\n\n${instructions}`,
     };
   });
 }
