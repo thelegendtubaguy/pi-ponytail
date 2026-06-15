@@ -7,13 +7,13 @@ Source behavior is adapted from [DietrichGebert/ponytail](https://github.com/Die
 ## Install
 
 ```bash
-pi install git:github.com/thelegendtubaguy/pi-ponytail
+pi install npm:pi-ponytail
 ```
 
 Try without installing:
 
 ```bash
-pi -e git:github.com/thelegendtubaguy/pi-ponytail
+pi -e npm:pi-ponytail
 ```
 
 ## Commands
