@@ -1,7 +1,7 @@
 {
   "name": "pi-ponytail",
-  "version": "0.1.1",
-  "description": "Ponytail lazy senior developer mode packaged for pi.",
+  "version": "0.1.2",
+  "description": "Ponytail lazy senior developer mode for pi.",
   "type": "module",
   "license": "MIT",
   "repository": {

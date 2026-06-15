@@ -1,6 +1,6 @@
 # pi-ponytail
 
-Ponytail lazy senior developer mode for pi: YAGNI first, stdlib/native before dependencies, smallest working diff, one runnable check for non-trivial logic.
+Ponytail lazy senior developer mode for pi. YAGNI first, stdlib/native before dependencies, smallest working diff, one runnable check for non-trivial logic.
 
 Source behavior is adapted from [DietrichGebert/ponytail](https://github.com/DietrichGebert/ponytail).
 
