@@ -1,0 +1,42 @@
+{
+  "name": "@thelegendtubaguy/pi-ponytail",
+  "version": "0.1.0",
+  "description": "Ponytail lazy senior developer mode packaged for pi.",
+  "type": "module",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/thelegendtubaguy/pi-ponytail.git"
+  },
+  "homepage": "https://github.com/thelegendtubaguy/pi-ponytail#readme",
+  "bugs": {
+    "url": "https://github.com/thelegendtubaguy/pi-ponytail/issues"
+  },
+  "keywords": [
+    "pi-package",
+    "pi",
+    "pi-extension",
+    "pi-skill",
+    "ponytail",
+    "yagni",
+    "minimalism"
+  ],
+  "files": [
+    "extensions",
+    "skills",
+    "README.md",
+    "LICENSE",
+    "NOTICE"
+  ],
+  "scripts": {
+    "test": "node --test test/*.test.js"
+  },
+  "pi": {
+    "extensions": [
+      "./extensions/ponytail.js"
+    ],
+    "skills": [
+      "./skills"
+    ]
+  }
+}

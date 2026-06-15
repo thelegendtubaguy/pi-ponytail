@@ -1,0 +1,146 @@
+import assert from "node:assert/strict";
+import { mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import test from "node:test";
+
+import ponytailExtension from "../extensions/ponytail.js";
+
+function createPiHarness() {
+  const events = new Map();
+  const commands = new Map();
+  const appendedEntries = [];
+  const sentUserMessages = [];
+
+  const pi = {
+    on(eventName, handler) {
+      events.set(eventName, handler);
+    },
+    registerCommand(name, options) {
+      commands.set(name, options);
+    },
+    appendEntry(customType, data) {
+      appendedEntries.push({ customType, data });
+    },
+    sendUserMessage(text, options) {
+      sentUserMessages.push({ text, options });
+    },
+  };
+
+  ponytailExtension(pi);
+  return { events, commands, appendedEntries, sentUserMessages };
+}
+
+function createCommandContext(overrides = {}) {
+  return {
+    isIdle: () => true,
+    sessionManager: { getBranch: () => [], getEntries: () => [] },
+    ui: { notify() {} },
+    ...overrides,
+  };
+}
+
+async function withTempConfig(fn) {
+  const tempConfigHome = mkdtempSync(join(tmpdir(), "pi-ponytail-test-"));
+  const previousXdg = process.env.XDG_CONFIG_HOME;
+  const previousDefault = process.env.PONYTAIL_DEFAULT_MODE;
+  process.env.XDG_CONFIG_HOME = tempConfigHome;
+  delete process.env.PONYTAIL_DEFAULT_MODE;
+
+  try {
+    await fn();
+  } finally {
+    if (previousXdg === undefined) delete process.env.XDG_CONFIG_HOME;
+    else process.env.XDG_CONFIG_HOME = previousXdg;
+
+    if (previousDefault === undefined) delete process.env.PONYTAIL_DEFAULT_MODE;
+    else process.env.PONYTAIL_DEFAULT_MODE = previousDefault;
+
+    rmSync(tempConfigHome, { recursive: true, force: true });
+  }
+}
+
+test("extension registers Ponytail commands", () => {
+  const { commands } = createPiHarness();
+
+  assert.deepEqual([...commands.keys()].sort(), [
+    "ponytail",
+    "ponytail-audit",
+    "ponytail-debt",
+    "ponytail-help",
+    "ponytail-review",
+  ]);
+});
+
+test("/ponytail updates session mode and injects instructions", () => withTempConfig(async () => {
+  const { commands, events, appendedEntries } = createPiHarness();
+  const ctx = createCommandContext();
+
+  await events.get("session_start")({ reason: "startup" }, ctx);
+  await commands.get("ponytail").handler("ultra", ctx);
+
+  assert.deepEqual(appendedEntries.at(-1), {
+    customType: "ponytail-mode",
+    data: { mode: "ultra" },
+  });
+
+  const result = await events.get("before_agent_start")({ systemPrompt: "BASE" }, ctx);
+  assert.ok(result.systemPrompt.includes("PONYTAIL MODE ACTIVE"));
+  assert.ok(result.systemPrompt.includes("ultra"));
+}));
+
+test("session_start restores latest persisted mode", () => withTempConfig(async () => {
+  const { events } = createPiHarness();
+  const ctx = createCommandContext({
+    sessionManager: {
+      getBranch: () => [
+        { type: "custom", customType: "ponytail-mode", data: { mode: "lite" } },
+      ],
+    },
+  });
+
+  await events.get("session_start")({ reason: "resume" }, ctx);
+  const result = await events.get("before_agent_start")({ systemPrompt: "BASE" }, ctx);
+
+  assert.ok(result.systemPrompt.includes("lite"));
+}));
+
+test("skill alias commands delegate to Pi skill commands and preserve args", async () => {
+  const { commands, sentUserMessages } = createPiHarness();
+  const ctx = createCommandContext();
+
+  await commands.get("ponytail-review").handler("current diff", ctx);
+  await commands.get("ponytail-audit").handler("", ctx);
+  await commands.get("ponytail-debt").handler("write ledger", ctx);
+  await commands.get("ponytail-help").handler("", ctx);
+
+  assert.deepEqual(sentUserMessages.map((entry) => entry.text), [
+    "/skill:ponytail-review current diff",
+    "/skill:ponytail-audit",
+    "/skill:ponytail-debt write ledger",
+    "/skill:ponytail-help",
+  ]);
+});
+
+test("skill alias queues follow-up when agent is active", async () => {
+  const { commands, sentUserMessages } = createPiHarness();
+  const ctx = createCommandContext({ isIdle: () => false });
+
+  await commands.get("ponytail-review").handler("", ctx);
+
+  assert.deepEqual(sentUserMessages, [
+    { text: "/skill:ponytail-review", options: { deliverAs: "followUp" } },
+  ]);
+});
+
+test("normal mode disables persistent instructions", () => withTempConfig(async () => {
+  const { commands, events } = createPiHarness();
+  const ctx = createCommandContext();
+
+  await events.get("session_start")({ reason: "startup" }, ctx);
+  await commands.get("ponytail").handler("ultra", ctx);
+  await events.get("input")({ text: "normal mode", source: "interactive" }, ctx);
+
+  const disabled = await events.get("before_agent_start")({ systemPrompt: "BASE" }, ctx);
+  assert.equal(disabled, undefined);
+}));
